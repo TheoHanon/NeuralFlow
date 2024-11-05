@@ -237,12 +237,16 @@ class Flow:
                     self.loss_and_metrics_update(logs, model, y_batch, y_pred, losses)
 
                 if epoch >= epochs - self.n_epochs_recorded:
+                    
                     self.gradient_weights.append(model.weights)
                     self.diffusion_step(model)
                     self.diffusion_weights.append(model.weights)
 
                     y_pred = model(x)
                     self.logp.append(self.log_p(y, y_pred, [m.trainable_variables for m in model.models]))
+
+                else : 
+                    self.diffusion_step(model)
 
                 self.on_epoch_end(epoch, logs)
 
