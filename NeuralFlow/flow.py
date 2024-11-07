@@ -40,7 +40,6 @@ class Flow:
 
         self.callbacks = []
         self.optimizer = None
-        self.lr = None
         self.metrics = None
 
         # Recording for gradient and diffusion steps
@@ -48,6 +47,7 @@ class Flow:
         self.gradient_weights = []
         self.diffusion_weights = []
         self.logp = []
+        self.learning_rates = []
 
         self.__flowed = False
         self.__compiled = False
@@ -61,6 +61,7 @@ class Flow:
         self.gradient_weights = []
         self.diffusion_weights = []
         self.logp = []
+        self.learning_rates = []
 
     def setup_log_p(self):
         """
@@ -155,8 +156,29 @@ class Flow:
         """
         self.model = model
         self.callbacks = callbacks or []
+    
+    def get_learning_rate(self):
+        """
+        Get the learning rate of the optimizer.
 
-    def compile(self, optimizer, lr, metrics=None):
+        Args:
+            optimizer (tf.optimizers.Optimizer): Optimizer instance.
+
+        Returns:
+            float: Learning rate.
+        """
+        
+        # Check if the learning rate is a schedule or a constant
+        if isinstance(self.optimizer.learning_rate, tf.keras.optimizers.schedules.LearningRateSchedule):
+            # If it's a schedule, get the learning rate at the current step
+            current_step = self.optimizer.iterations
+            return tf.cast(self.optimizer.learning_rate(current_step), tf.float64).numpy()
+        else:
+            # If it's a constant learning rate, return it directly
+            return tf.cast(self.optimizer.learning_rate, tf.float64).numpy()
+
+
+    def compile(self, optimizer, metrics=None):
         """
         Compile the Flow instance with optimizer and metrics.
 
@@ -165,12 +187,9 @@ class Flow:
             lr (float): Learning rate.
             metrics (list or None): List of metrics to evaluate during training.
         """
-        self.lr = lr  # TODO: Implement learning rate scheduler
+    
         if isinstance(optimizer, str):
-            self.optimizer = tf.optimizers.get({
-                'class_name': optimizer,
-                'config': {'learning_rate': lr}
-            })
+            self.optimizer = tf.optimizers.get(optimizer)
         else:
             self.optimizer = optimizer
 
@@ -213,7 +232,8 @@ class Flow:
             models (tf.keras.Model): Model(s) being trained.
         """
         if self.is_scalar_noise:
-            stddev = tf.sqrt(2*self.lr * self.noise_cov_matrix)
+            lr = self.get_learning_rate()
+            stddev = tf.cast(tf.sqrt(2 * lr * self.noise_cov_matrix), tf.float32)
             for v in models.trainable_variables:
                 noise = tf.random.normal(shape=tf.shape(v), mean=0.0, stddev=stddev)
                 v.assign_add(noise)
@@ -268,6 +288,7 @@ class Flow:
                     self.gradient_weights.append(model.weights)
                     self.diffusion_step(model)
                     self.diffusion_weights.append(model.weights)
+                    self.learning_rates.append(self.get_learning_rate())
 
                     y_pred = model(x)
                     self.logp.append(self.log_p(y, y_pred, [m.trainable_variables for m in model.models]))
@@ -363,7 +384,8 @@ class Flow:
         for i, (wgrad, wdiff) in enumerate(zip(grad_weights, diff_weights)):
             diff = wdiff[:, None, :] - wgrad[None, :, :]  # Shape: (M, M, d)
             # Assuming scalar noise covariance
-            sigma = self.noise_cov_matrix * np.ones(d) / (2 * self.lr)
+            lr = self.learning_rates[i]
+            sigma = self.noise_cov_matrix * np.ones(d) / (2 * lr)
             exponents = -0.5 * np.einsum('mij,j,mij->mi', diff, sigma, diff)
             logq[i] = logsumexp(exponents, axis=1)
 
