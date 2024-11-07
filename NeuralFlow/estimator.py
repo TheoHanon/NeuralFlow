@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 from Models.parallel_model import ParallelModel
 
-def get_estimator(name: str, *args: np.Any, **kwds: np.Any) -> np.Any:
+def get_estimator(name: str, *args, **kwds):
     if name == 'deep_ensemble':
         return Ensemble(*args, **kwds)
     elif name == 'importance_sampling':
@@ -27,7 +27,7 @@ class Ensemble:
         self.models = models
 
 
-    def __call__(self, x_pred : tf.Tensor, *args: np.Any, **kwds: np.Any) -> np.Any:
+    def __call__(self, x_pred : tf.Tensor, *args, **kwds) :
         
         mean = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
         var  = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
@@ -66,7 +66,7 @@ class ImportanceSampling:
         return 
 
 
-    def __call__(self, x_pred : np.ndarray, *args: np.Any, **kwds: np.Any) -> np.Any:
+    def __call__(self, x_pred : np.ndarray, *args, **kwds):
         
         mean = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
         var  = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
