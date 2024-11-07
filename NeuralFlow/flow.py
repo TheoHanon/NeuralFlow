@@ -157,28 +157,7 @@ class Flow:
         self.model = model
         self.callbacks = callbacks or []
     
-    def get_learning_rate(self):
-        """
-        Get the learning rate of the optimizer.
-
-        Args:
-            optimizer (tf.optimizers.Optimizer): Optimizer instance.
-
-        Returns:
-            float: Learning rate.
-        """
-        
-        # Check if the learning rate is a schedule or a constant
-        if isinstance(self.optimizer.learning_rate, tf.keras.optimizers.schedules.LearningRateSchedule):
-            # If it's a schedule, get the learning rate at the current step
-            current_step = self.optimizer.iterations
-            return tf.cast(self.optimizer.learning_rate(current_step), tf.float64).numpy()
-        else:
-            # If it's a constant learning rate, return it directly
-            return tf.cast(self.optimizer.learning_rate, tf.float64).numpy()
-
-
-    def compile(self, optimizer, metrics=None):
+    def compile(self, optimizer, lr_schedule = None, metrics=None):
         """
         Compile the Flow instance with optimizer and metrics.
 
@@ -193,6 +172,7 @@ class Flow:
         else:
             self.optimizer = optimizer
 
+        self.lr_schedule = lr_schedule or (lambda iter : self.optimizer.learning_rate)
         self.metrics = [tf.keras.metrics.get(metric) for metric in (metrics or [])]
         self.__compiled = True
 
@@ -232,8 +212,8 @@ class Flow:
             models (tf.keras.Model): Model(s) being trained.
         """
         if self.is_scalar_noise:
-            lr = self.get_learning_rate()
-            stddev = tf.cast(tf.sqrt(2 * lr * self.noise_cov_matrix), tf.float32)
+            lr = self.lr_schedule(self.optimizer.iterations)
+            stddev = tf.sqrt(2 * lr * self.noise_cov_matrix)
             for v in models.trainable_variables:
                 noise = tf.random.normal(shape=tf.shape(v), mean=0.0, stddev=stddev)
                 v.assign_add(noise)
@@ -288,7 +268,7 @@ class Flow:
                     self.gradient_weights.append(model.weights)
                     self.diffusion_step(model)
                     self.diffusion_weights.append(model.weights)
-                    self.learning_rates.append(self.get_learning_rate())
+                    self.learning_rates.append(self.lr_schedule(self.optimizer.iterations))
 
                     y_pred = model(x)
                     self.logp.append(self.log_p(y, y_pred, [m.trainable_variables for m in model.models]))
