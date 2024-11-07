@@ -35,18 +35,26 @@ class Flow:
             self.noise_cov_matrix = tf.convert_to_tensor(k, dtype=tf.float32)
 
         # Training parameters
-        self.epochs = None
+
         self.callbacks = []
         self.optimizer = None
         self.lr = None
         self.metrics = None
-        self.models = []
 
         # Recording for gradient and diffusion steps
         self.gradient_weights = []
         self.diffusion_weights = []
         self.logp = []
 
+        self.flowed = False
+
+    def _reset_flow(self):
+        """
+        Reset the Flow instance.
+        """
+        self.gradient_weights = []
+        self.diffusion_weights = []
+        self.logp = []
         self.flowed = False
 
     def setup_log_p(self):
@@ -102,20 +110,7 @@ class Flow:
 
         self.metrics = [tf.keras.metrics.get(metric) for metric in (metrics or [])]
 
-    def setup_training(self, models, epochs, callbacks=None):
-        """
-        Set up training parameters such as epochs and callbacks.
-
-        Args:
-            models (tf.keras.Model): Model(s) to train.
-            epochs (int): Number of epochs to train.
-            callbacks (list or None): List of callbacks to use during training.
-        """
-        self.models = models
-        self.epochs = epochs
-        if callbacks is not None:
-            self.callbacks = callbacks
-
+    
     def reset_metrics(self):
         """
         Reset all metrics at the start of each epoch.
@@ -208,7 +203,15 @@ class Flow:
             # TODO: Implement non-scalar noise covariance matrix
             raise NotImplementedError("Non-scalar noise covariance matrix not implemented yet.")
 
-    def flow(self, model: tf.keras.Model, x, y, epochs, batch_size, callbacks=None):
+    def flow(self, 
+             model: tf.keras.Model, 
+             x, 
+             y, 
+             epochs, 
+             batch_size, 
+             validation_set = None,
+             callbacks=None,
+             compute_weights_and_distribution = True):
         """
         The main training loop that runs for the specified number of epochs.
 
@@ -217,10 +220,11 @@ class Flow:
             x (tf.Tensor): Input data.
             y (tf.Tensor): Target data.
             epochs (int): Number of epochs to train.
+            batch_size (int): Batch size for training.
+            validation_set (tuple or None): Validation data as a tuple of (x_val, y_val).
             callbacks (list or None): List of callbacks to use during training.
         """
-        self.setup_training(model, epochs, callbacks)
-
+        self.callbacks = callbacks or []
         # Initialize progress bar
 
         dataset = tf.data.Dataset.from_tensor_slices((x, y))
@@ -250,18 +254,35 @@ class Flow:
 
                 self.on_epoch_end(epoch, logs)
 
-                # Update progress bar description
+
+                if validation_set is not None:
+                    x_val, y_val = validation_set
+                    y_val_pred = model(x_val)
+                    val_losses = -self.log_p(y_val, y_val_pred, [m.trainable_variables for m in model.models])
+                    val_logs = {}
+                    self.loss_and_metrics_update(val_logs, model, y_val, y_val_pred, val_losses)
+                    val_loss_str = ", ".join([f'{k}: {v}' for k, v in val_logs.items()])
+                
+
                 postfix = {f'Loss_Model_{i}': f'{logs[f"loss_model_{i}"]:.4f}' for i in range(len(model.models))}
                 loss_str = ", ".join([f'{k}: {v}' for k, v in postfix.items()])
-                epoch_bar.set_postfix_str(f"Epoch {epoch + 1}/{epochs} - {loss_str}")
+
+                if validation_set is not None:
+                    epoch_bar.set_postfix_str(f"Epoch {epoch + 1}/{epochs} - {loss_str} - {val_loss_str}")
+                else:
+                    epoch_bar.set_postfix_str(f"Epoch {epoch + 1}/{epochs} - {loss_str}")
 
                 # Update the epoch progress bar after each epoch
                 epoch_bar.update(1)
 
         self.flowed = True
 
-    @property
-    def weight_and_distribution(self):
+        if compute_weights_and_distribution:
+            return self.compute_weight_and_distribution()
+        
+        return
+    
+    def compute_weight_and_distribution(self):
         """
         Compute and return the weights and distributions after flow has been applied.
 
@@ -283,7 +304,7 @@ class Flow:
         M = len(self.models.models)  # Number of models
         d = grad_weights.shape[2]
 
-        log_q = np.zeros((self.n_epochs_recorded, M))
+        logq = np.zeros((self.n_epochs_recorded, M))
         logp = np.array(self.logp)
 
         for i, (wgrad, wdiff) in enumerate(zip(grad_weights, diff_weights)):
@@ -291,6 +312,6 @@ class Flow:
             # Assuming scalar noise covariance
             sigma = self.noise_cov_matrix * np.ones(d) / (2 * self.lr)
             exponents = -0.5 * np.einsum('mij,j,mij->mi', diff, sigma, diff)
-            log_q[i] = logsumexp(exponents, axis=1)
+            logq[i] = logsumexp(exponents, axis=1)
 
-        return diff_weights, log_q, logp
+        return diff_weights, logq, logp
