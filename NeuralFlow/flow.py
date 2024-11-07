@@ -4,8 +4,10 @@ import tensorflow_probability as tfp
 from scipy.special import logsumexp
 from typing import Union
 from tqdm.notebook import tqdm
+import estimator as est
 
 class Flow:
+
     def __init__(self, 
                  prior: Union[tfp.distributions.Distribution, bool] = tfp.distributions.Uniform(-1, 1),
                  likelihood_std: float = 1.0, 
@@ -46,16 +48,17 @@ class Flow:
         self.diffusion_weights = []
         self.logp = []
 
-        self.flowed = False
+        self.__flowed = False
+        self.__compiled = False
 
     def _reset_flow(self):
         """
-        Reset the Flow instance.
+        Reset the flow instance.
         """
+        self.__flowed = False
         self.gradient_weights = []
         self.diffusion_weights = []
         self.logp = []
-        self.flowed = False
 
     def setup_log_p(self):
         """
@@ -90,25 +93,6 @@ class Flow:
 
         return log_p
 
-    def compile(self, optimizer, lr, metrics=None):
-        """
-        Compile the Flow instance with optimizer and metrics.
-
-        Args:
-            optimizer (str or tf.optimizers.Optimizer): Optimizer to use.
-            lr (float): Learning rate.
-            metrics (list or None): List of metrics to evaluate during training.
-        """
-        self.lr = lr  # TODO: Implement learning rate scheduler
-        if isinstance(optimizer, str):
-            self.optimizer = tf.optimizers.get({
-                'class_name': optimizer,
-                'config': {'learning_rate': lr}
-            })
-        else:
-            self.optimizer = optimizer
-
-        self.metrics = [tf.keras.metrics.get(metric) for metric in (metrics or [])]
 
     
     def reset_metrics(self):
@@ -158,6 +142,27 @@ class Flow:
             for metric in self.metrics:
                 metric.update_state(y, y_pred[i])
                 logs[f"{metric.name}_model_{i}"] = metric.result().numpy()
+
+    def compile(self, optimizer, lr, metrics=None):
+        """
+        Compile the Flow instance with optimizer and metrics.
+
+        Args:
+            optimizer (str or tf.optimizers.Optimizer): Optimizer to use.
+            lr (float): Learning rate.
+            metrics (list or None): List of metrics to evaluate during training.
+        """
+        self.lr = lr  # TODO: Implement learning rate scheduler
+        if isinstance(optimizer, str):
+            self.optimizer = tf.optimizers.get({
+                'class_name': optimizer,
+                'config': {'learning_rate': lr}
+            })
+        else:
+            self.optimizer = optimizer
+
+        self.metrics = [tf.keras.metrics.get(metric) for metric in (metrics or [])]
+        self.__compiled = True
 
     @tf.function
     def gradient_step(self, models: tf.keras.Model, x, y):
@@ -209,9 +214,9 @@ class Flow:
              y, 
              epochs, 
              batch_size, 
+             estimator = "deep_ensemble",
              validation_set = None,
-             callbacks=None,
-             compute_weights_and_distribution = True):
+             callbacks=None):
         """
         The main training loop that runs for the specified number of epochs.
 
@@ -224,6 +229,12 @@ class Flow:
             validation_set (tuple or None): Validation data as a tuple of (x_val, y_val).
             callbacks (list or None): List of callbacks to use during training.
         """
+
+        self._reset_flow()
+        
+        if not self.__compiled:
+            raise ValueError("Flow not compiled. Run the compile method first.")
+        
         self.callbacks = callbacks or []
         # Initialize progress bar
 
@@ -275,13 +286,18 @@ class Flow:
                 # Update the epoch progress bar after each epoch
                 epoch_bar.update(1)
 
-        self.flowed = True
+        self.__flowed = True
+        self.__compiled = False
 
-        if compute_weights_and_distribution:
-            return self.compute_weight_and_distribution()
-        
-        return
+        if estimator == "deep_ensemble":
+            weights = np.array(self.gradient_weights)
+            return est.DeepEnsemble(weights, model)
+        elif estimator is not None:
+            weights, logq, logp = self.compute_weight_and_distribution()
+            return est.get_estimator(estimator, weights, logq, logp, model)
+        else : return
     
+
     def compute_weight_and_distribution(self):
         """
         Compute and return the weights and distributions after flow has been applied.
@@ -295,7 +311,7 @@ class Flow:
         Raises:
             ValueError: If flow has not been computed yet.
         """
-        if not self.flowed:
+        if not self.__flowed:
             raise ValueError("Flow not yet computed. Run the flow method first.")
         
         grad_weights = np.array(self.gradient_weights)
