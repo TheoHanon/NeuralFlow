@@ -44,6 +44,7 @@ class Flow:
         self.metrics = None
 
         # Recording for gradient and diffusion steps
+        self.model = None
         self.gradient_weights = []
         self.diffusion_weights = []
         self.logp = []
@@ -56,6 +57,7 @@ class Flow:
         Reset the flow instance.
         """
         self.__flowed = False
+        self.model = None
         self.gradient_weights = []
         self.diffusion_weights = []
         self.logp = []
@@ -142,6 +144,17 @@ class Flow:
             for metric in self.metrics:
                 metric.update_state(y, y_pred[i])
                 logs[f"{metric.name}_model_{i}"] = metric.result().numpy()
+
+    def _setup_training(self, model, callbacks):
+        """
+        Set up the training environment.
+
+        Args:
+            model (tf.keras.Model): Model(s) to train.
+            callbacks (list): List of callbacks to use during training.
+        """
+        self.model = model
+        self.callbacks = callbacks or []
 
     def compile(self, optimizer, lr, metrics=None):
         """
@@ -235,8 +248,7 @@ class Flow:
         if not self.__compiled:
             raise ValueError("Flow not compiled. Run the compile method first.")
         
-        self.callbacks = callbacks or []
-        # Initialize progress bar
+        self._setup_training(model, callbacks)
 
         dataset = tf.data.Dataset.from_tensor_slices((x, y))
         dataset = dataset.shuffle(buffer_size = 1024).batch(batch_size)
@@ -291,13 +303,38 @@ class Flow:
 
         if estimator == "deep_ensemble":
             weights = np.array(self.gradient_weights)
-            return est.DeepEnsemble(weights, model)
+            return est.Ensemble(weights, self.model)
+        
         elif estimator is not None:
             weights, logq, logp = self.compute_weight_and_distribution()
-            return est.get_estimator(estimator, weights, logq, logp, model)
+            return est.get_estimator(estimator, weights, logq, logp, self.model)
+        
         else : return
     
+    def get_estimator(self, name: str):
+        """
+        Get the estimator with the given name.
 
+        Args:
+            name (str): Name of the estimator.
+
+        Returns:
+            Estimator: Estimator object.
+        """
+        if name == 'deep_ensemble':
+
+            weights = np.array(self.gradient_weights)
+            return est.Ensemble(weights, self.model)
+        
+        elif name == 'importance_sampling':
+
+            weights, logq, logp = self.compute_weight_and_distribution()
+            return est.get_estimator(name, weights, logq, logp, self.model)
+    
+        else:
+            raise ValueError(f"Invalid estimator name: {name}")
+        
+    
     def compute_weight_and_distribution(self):
         """
         Compute and return the weights and distributions after flow has been applied.
@@ -317,7 +354,7 @@ class Flow:
         grad_weights = np.array(self.gradient_weights)
         diff_weights = np.array(self.diffusion_weights)
 
-        M = len(self.models.models)  # Number of models
+        M = len(self.model.models)  # Number of models
         d = grad_weights.shape[2]
 
         logq = np.zeros((self.n_epochs_recorded, M))
