@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from Models.parallel_model import ParallelModel
+from parallel_model import ParallelModel
 
 def get_estimator(name: str, *args, **kwds):
     if name == 'deep_ensemble':

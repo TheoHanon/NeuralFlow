@@ -5,6 +5,7 @@ from scipy.special import logsumexp
 from typing import Union
 from tqdm.notebook import tqdm
 import estimator as est
+import parallel_model as pm
 
 class Flow:
 
@@ -28,6 +29,7 @@ class Flow:
         self.likelihood_std = tf.cast(likelihood_std, tf.float32)
         self.log_p = self.setup_log_p()
         self.n_epochs_recorded = n_epochs_recorded
+        self.n_models = None
 
         if np.isscalar(k):
             self.is_scalar_noise = True
@@ -156,8 +158,11 @@ class Flow:
         """
         self.model = model
         self.callbacks = callbacks or []
+
+    def setup_model(self, model : tf.keras.Model) -> None:
+        self.model = pm.ParallelModel(model, self.n_models)
     
-    def compile(self, optimizer, lr_schedule = None, metrics=None):
+    def compile(self, optimizer, n_models, lr_schedule = None, metrics=None):
         """
         Compile the Flow instance with optimizer and metrics.
 
@@ -174,6 +179,7 @@ class Flow:
 
         self.lr_schedule = lr_schedule or (lambda iter : self.optimizer.learning_rate)
         self.metrics = [tf.keras.metrics.get(metric) for metric in (metrics or [])]
+        self.n_models = n_models
         self.__compiled = True
 
     @tf.function
@@ -204,7 +210,7 @@ class Flow:
 
         return losses, y_pred
 
-    def diffusion_step(self, models: tf.keras.Model):
+    def diffusion_step(self):
         """
         Add Gaussian noise to the model variables with covariance K.
 
@@ -214,7 +220,7 @@ class Flow:
         if self.is_scalar_noise:
             lr = self.lr_schedule(self.optimizer.iterations)
             stddev = tf.sqrt(2 * lr * self.noise_cov_matrix)
-            for v in models.trainable_variables:
+            for v in self.model.trainable_variables:
                 noise = tf.random.normal(shape=tf.shape(v), mean=0.0, stddev=stddev)
                 v.assign_add(noise)
         else:
@@ -227,7 +233,6 @@ class Flow:
              y, 
              epochs, 
              batch_size, 
-             estimator = "deep_ensemble",
              validation_set = None,
              callbacks=None):
         """
@@ -248,7 +253,8 @@ class Flow:
         if not self.__compiled:
             raise ValueError("Flow not compiled. Run the compile method first.")
         
-        self._setup_training(model, callbacks)
+        self.setup_model(model)
+        self._setup_training(self.model, callbacks)
 
         dataset = tf.data.Dataset.from_tensor_slices((x, y))
         dataset = dataset.shuffle(buffer_size = 1024).batch(batch_size)
@@ -260,35 +266,35 @@ class Flow:
                 logs = {}
 
                 for x_batch, y_batch in dataset:
-                    losses, y_pred = self.gradient_step(model, x_batch, y_batch)                    
-                    self.loss_and_metrics_update(logs, model, y_batch, y_pred, losses)
+                    losses, y_pred = self.gradient_step(self.model, x_batch, y_batch)                    
+                    self.loss_and_metrics_update(logs, self.model, y_batch, y_pred, losses)
 
                 if epoch >= epochs - self.n_epochs_recorded:
                     
-                    self.gradient_weights.append(model.weights)
-                    self.diffusion_step(model)
-                    self.diffusion_weights.append(model.weights)
+                    self.gradient_weights.append(self.model.weights)
+                    self.diffusion_step()
+                    self.diffusion_weights.append(self.model.weights)
                     self.learning_rates.append(self.lr_schedule(self.optimizer.iterations))
 
-                    y_pred = model(x)
-                    self.logp.append(self.log_p(y, y_pred, [m.trainable_variables for m in model.models]))
+                    y_pred = self.model(x)
+                    self.logp.append(self.log_p(y, y_pred, [m.trainable_variables for m in self.model.models]))
 
                 else : 
-                    self.diffusion_step(model)
+                    self.diffusion_step()
 
                 self.on_epoch_end(epoch, logs)
 
 
                 if validation_set is not None:
                     x_val, y_val = validation_set
-                    y_val_pred = model(x_val)
-                    val_losses = -self.log_p(y_val, y_val_pred, [m.trainable_variables for m in model.models])
+                    y_val_pred = self.model(x_val)
+                    val_losses = -self.log_p(y_val, y_val_pred, [m.trainable_variables for m in self.model.models])
                     val_logs = {}
-                    self.loss_and_metrics_update(val_logs, model, y_val, y_val_pred, val_losses)
+                    self.loss_and_metrics_update(val_logs, self.model, y_val, y_val_pred, val_losses)
                     val_loss_str = ", ".join([f'{k}: {v}' for k, v in val_logs.items()])
                 
 
-                postfix = {f'Loss_Model_{i}': f'{logs[f"loss_model_{i}"]:.4f}' for i in range(len(model.models))}
+                postfix = {f'Loss_Model_{i}': f'{logs[f"loss_model_{i}"]:.4f}' for i in range(len(self.model.models))}
                 loss_str = ", ".join([f'{k}: {v}' for k, v in postfix.items()])
 
                 if validation_set is not None:
@@ -302,15 +308,7 @@ class Flow:
         self.__flowed = True
         self.__compiled = False
 
-        if estimator == "deep_ensemble":
-            weights = np.array(self.gradient_weights)
-            return est.Ensemble(weights, self.model)
-        
-        elif estimator is not None:
-            weights, logq, logp = self.compute_weight_and_distribution()
-            return est.get_estimator(estimator, weights, logq, logp, self.model)
-        
-        else : return
+        return
     
     def get_estimator(self, name: str):
         """
