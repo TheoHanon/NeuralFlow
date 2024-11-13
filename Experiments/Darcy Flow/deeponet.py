@@ -4,7 +4,7 @@ from typing import Union
 
 
 class DeepONet(tf.keras.Model):
-    def __init__(self, n_branch:int, n_trunk : int, width:int, depth:int, output_dim:int, activation : Union[str, callable], boundary_fn : callable = None) -> None:
+    def __init__(self, n_branch:int, n_trunk : int, width:int, depth:int, output_dim:int, activation : Union[str, callable]) -> None:
         """
         DeepONet model
         :param n_branch: number of branches
@@ -23,8 +23,7 @@ class DeepONet(tf.keras.Model):
         self.depth = depth
         self.output_dim = output_dim
         self.activation = activation
-        self.boundary_fn = boundary_fn if boundary_fn is not None else lambda x: 1.0
-
+        
         self.branch_net = MLP(input_size = self.n_branch, hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=False)
         self.trunk_net = MLP(input_size = self.n_trunk, hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=True)
 
@@ -39,12 +38,11 @@ class DeepONet(tf.keras.Model):
         :return: output tensor
         """
 
-        boundary_constraints = self.boundary_fn(x_trunk)
         
         branch_out = self.branch_net(x_branch)
         trunk_out = self.trunk_net(x_trunk)
 
-        return (branch_out @ tf.transpose(trunk_out) + self.bias) * boundary_constraints
+        return branch_out @ tf.transpose(trunk_out) + self.bias
 
 
 
@@ -68,7 +66,7 @@ class MLP(tf.keras.Model):
 
         self.mlp = tf.keras.Sequential()
 
-        self.mlp.add(tf.keras.layers.InputLayer(shape=(input_size,)))
+        self.mlp.add(tf.keras.layers.InputLayer(input_shape=(input_size,)))
         
         for _ in range(depth):
             self.mlp.add(tf.keras.layers.Dense(hidden_size, activation=activation))
