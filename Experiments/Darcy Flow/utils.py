@@ -60,10 +60,10 @@ class DarcyDatasetLoader:
         
         return train_dataset, validation_dataset
     
-    def get_dataset(self, batch_size=32, shuffle_buffer_size=100):
+    def get_dataset(self, shuffle_buffer_size=100):
         """Return the full dataset with specified batch size and shuffle buffer size."""
         # No unbatching, just batching and shuffling directly
-        return self.full_dataset.shuffle(shuffle_buffer_size).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        return self.full_dataset.shuffle(shuffle_buffer_size).unbatch().prefetch(tf.data.AUTOTUNE)
 
             
 

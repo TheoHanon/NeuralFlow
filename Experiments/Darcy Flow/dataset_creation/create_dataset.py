@@ -17,12 +17,16 @@ def generate_random_field(n_points, L):
     identity = sp.eye(n_points * n_points, format="csc")
     operator = sp.csc_matrix(-L + 9 * identity)
 
-    random_field = np.random.randn(n_points * n_points)
+    while True:
+        random_field = np.random.randn(n_points * n_points)
 
-    random_field, _ = splinalg.cg(operator, random_field)
-    random_field, _ = splinalg.cg(operator, random_field)
+        random_field, _ = splinalg.cg(operator, random_field)
+        random_field, _ = splinalg.cg(operator, random_field)
 
-    random_field = np.where(random_field >= 0, 12, 3)
+        random_field = np.where(random_field >= 0, 12.0, 3.0)
+
+        if np.any(random_field  != 3.0) and np.any(random_field != 12.0):
+            break
 
     return random_field.reshape(n_points, n_points)
 
@@ -55,7 +59,7 @@ def solve_and_save(path, n_field, n_points, L):
     save_metadata(path + "/", (n_points, n_points), n_field)
 
     with tf.io.TFRecordWriter(path + "/data.tfrecord") as writer:
-        for _ in tqdm.tqdm(range(n_field)):
+        for _ in range(n_field):
             random_field = generate_random_field(n_points, L)
         
             # Solve the Darcy PDE
@@ -67,8 +71,8 @@ def solve_and_save(path, n_field, n_points, L):
 
 if __name__ == "__main__":
 
-    n_points = 256
-    n_field = 1000
+    n_points = 128
+    n_field = 10_000
     grid_size = 1.0
     dx = grid_size / n_points
     x = np.linspace(0, grid_size, n_points)
