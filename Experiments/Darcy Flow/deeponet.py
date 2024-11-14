@@ -1,6 +1,19 @@
 import tensorflow as tf
 import numpy as np
 from typing import Union
+import math
+
+class CosineAnnealingSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, initial_learning_rate, decay_steps, alpha=0.0):
+        super(CosineAnnealingSchedule, self).__init__()
+        self.initial_learning_rate = initial_learning_rate
+        self.decay_steps = decay_steps
+        self.alpha = alpha  # The minimum learning rate fraction (alpha * initial_learning_rate)
+
+    def __call__(self, step):
+        cosine_decay = 0.5 * (1 + tf.cos(math.pi * (step / self.decay_steps)))
+        decayed = (1 - self.alpha) * cosine_decay + self.alpha
+        return self.initial_learning_rate * decayed
 
 
 class DeepONet(tf.keras.Model):
@@ -37,8 +50,8 @@ class DeepONet(tf.keras.Model):
         self.t_bounds = t_bounds
 
 
-        self.branch_net = CNNBranchNet2D(input_shape = (self.n_branch, self.n_branch, 1), output_dim = self.output_dim, activation = self.activation)
-        self.trunk_net = MLPTrunkNet2D(input_shape = (self.n_trunk,) , hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=True)
+        self.branch_net = CNNBranchNet2D(in_shape = (self.n_branch, self.n_branch, 1), output_dim = self.output_dim, activation = self.activation)
+        self.trunk_net = MLPTrunkNet2D(in_shape = (self.n_trunk,) , hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=True)
 
         self.bias = tf.Variable([1.0])
 
@@ -62,7 +75,7 @@ class DeepONet(tf.keras.Model):
     
 class CNNBranchNet2D(tf.keras.Model):
 
-    def __init__(self, input_shape: tuple, output_dim: int, activation: Union[str, callable]) -> None:
+    def __init__(self, in_shape: tuple, output_dim: int, activation: Union[str, callable]) -> None:
         """
         CNN-based branch network for DeepONet (2D)
         :param input_shape: shape of the input (2D structure)
@@ -70,22 +83,29 @@ class CNNBranchNet2D(tf.keras.Model):
         :param activation: activation function
         """
         super(CNNBranchNet2D, self).__init__()
+
+        self.in_shape = in_shape
+        self.output_dim = output_dim
+        self.activation = activation
         
+        initializer = tf.keras.initializers.GlorotUniform()
+
         self.cnn = tf.keras.Sequential([
-            tf.keras.Input(shape=input_shape),
-
-            tf.keras.layers.Conv2D(filters=32, kernel_size=3, padding="same", activation=activation),
-            tf.keras.layers.Conv2D(filters=32, kernel_size=3, padding="same", activation=activation),
+            tf.keras.Input(shape=in_shape),
+            tf.keras.layers.Conv2D(32, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
+            tf.keras.layers.Conv2D(32, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
             tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
             tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.15),
 
-            tf.keras.layers.Conv2D(filters=64, kernel_size=3, padding="same", activation=activation),
-            tf.keras.layers.Conv2D(filters=64, kernel_size=3, padding="same", activation=activation),   
+            tf.keras.layers.Conv2D(64, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
+            tf.keras.layers.Conv2D(64, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
             tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
             tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.15),
 
             tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(output_dim, activation=None)
+            tf.keras.layers.Dense(output_dim, activation=None, kernel_initializer=initializer)
         ])
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
@@ -101,7 +121,7 @@ class CNNBranchNet2D(tf.keras.Model):
 
 class MLPTrunkNet2D(tf.keras.Model):
 
-    def __init__(self, input_shape:int, hidden_size : int, output_size : int, depth:int, activation : Union[str, callable], final_activation : bool) -> None:
+    def __init__(self, in_shape:int, hidden_size : int, output_size : int, depth:int, activation : Union[str, callable], final_activation : bool) -> None:
         """
         Multi-layer perceptron model
         :param input_size: input size
@@ -111,22 +131,25 @@ class MLPTrunkNet2D(tf.keras.Model):
         """
         super(MLPTrunkNet2D, self).__init__()
 
-        self.input_shape = input_shape
+        self.in_shape = in_shape
         self.hidden_size = hidden_size
         self.output_size = output_size
 
         self.activation = activation
 
+        initializer = tf.keras.initializers.GlorotUniform()
+
         self.mlp = tf.keras.Sequential()
-        self.mlp.add(tf.keras.Input(shape=self.input_shape))
+        self.mlp.add(tf.keras.Input(shape=self.in_shape))
         
         for _ in range(depth):
-            self.mlp.add(tf.keras.layers.Dense(hidden_size, activation=activation))
+            self.mlp.add(tf.keras.layers.Dense(hidden_size, activation=activation, kernel_initializer=initializer))
 
         if final_activation:
-            self.mlp.add(tf.keras.layers.Dense(output_size, activation=activation))
+            self.mlp.add(tf.keras.layers.Dense(output_size, activation=activation, kernel_initializer=initializer))
         else:
-            self.mlp.add(tf.keras.layers.Dense(output_size, activation=None))
+            self.mlp.add(tf.keras.layers.Dense(output_size, activation=None, kernel_initializer=initializer))
+    
     
     def call(self, x: tf.Tensor) -> tf.Tensor:
         """
