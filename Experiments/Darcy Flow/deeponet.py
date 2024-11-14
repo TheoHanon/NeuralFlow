@@ -42,28 +42,25 @@ class DeepONet(tf.keras.Model):
 
         self.bias = tf.Variable([1.0])
 
-    def compile(self, optimizer: tf.keras.optimizers.Optimizer, loss_fn) -> None:
-        super(DeepONet, self).compile()
-        self.optimizer = optimizer
-        self.loss_fn = loss_fn
+    def build(self, input_shape):
+        return super().build(input_shape)
 
-    def call(self, x_branch: tf.Tensor, x_trunk: tf.Tensor) -> tf.Tensor:
+
+    def call(self, x_branch : tf.Tensor, x_trunk: tf.Tensor) -> tf.Tensor:
         """
         Forward pass
-        :param x_branch: input tensor for branch
-        :param x_trunk: input tensor for trunk
+        :param inputs
         :return: output tensor
         """
-
+   
         x, y = x_trunk[..., 0], x_trunk[..., 1]
         bounds = (x - self.x_bounds[0]) * (x - self.x_bounds[1]) * (y - self.t_bounds[0]) * (y - self.t_bounds[1])
 
         branch_out = self.branch_net(x_branch)
         trunk_out = self.trunk_net(x_trunk)
         
-        return (tf.reduce_sum(branch_out * trunk_out, axis=1, keepdims=True) + self.bias) * bounds
+        return (branch_out @ tf.transpose(trunk_out) + self.bias) * tf.expand_dims(bounds, axis =-1)
         
-
     
 
 class CNNBranchNet2D(tf.keras.Model):
