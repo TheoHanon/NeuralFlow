@@ -38,7 +38,7 @@ class DeepONet(tf.keras.Model):
 
 
         self.branch_net = CNNBranchNet2D(input_shape = (self.n_branch, self.n_branch, 1), output_dim = self.output_dim, activation = self.activation)
-        self.trunk_net = MLP(input_size = self.n_trunk, hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=True)
+        self.trunk_net = MLPTrunkNet2D(input_shape = (self.n_trunk,) , hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=True)
 
         self.bias = tf.Variable([1.0])
 
@@ -47,21 +47,19 @@ class DeepONet(tf.keras.Model):
         """
         Forward pass
         :x_branch: shape (batch, n_branch, n_branch)
-        :x_trunk: shape (batch, n_trunk) 
+        :x_trunk: shape (n_xcoords*n_ycoords, n_trunk) 
         :return: shape (batch, n_trunk)
         """
-   
+
         x, y = x_trunk[..., 0], x_trunk[..., 1]
         bounds = (x - self.x_bounds[0]) * (x - self.x_bounds[1]) * (y - self.t_bounds[0]) * (y - self.t_bounds[1])
 
         branch_out = self.branch_net(x_branch) # (batch, output_dim)
-        trunk_out = self.trunk_net(x_trunk) # (batch, output_dim)
+        trunk_out = self.trunk_net(x_trunk) # (n_xcoords * n_ycoords, output_dim)
         
-        output = tf.reduce_sum(branch_out * trunk_out, axis = 1, keepdims = True) + self.bias
-        return output * tf.expand_dims(bounds, axis =-1)
+        return (branch_out @ tf.transpose(trunk_out) + self.bias) * bounds
         
     
-
 class CNNBranchNet2D(tf.keras.Model):
 
     def __init__(self, input_shape: tuple, output_dim: int, activation: Union[str, callable]) -> None:
@@ -75,9 +73,17 @@ class CNNBranchNet2D(tf.keras.Model):
         
         self.cnn = tf.keras.Sequential([
             tf.keras.Input(shape=input_shape),
+
             tf.keras.layers.Conv2D(filters=32, kernel_size=3, padding="same", activation=activation),
             tf.keras.layers.Conv2D(filters=32, kernel_size=3, padding="same", activation=activation),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            tf.keras.layers.BatchNormalization(),
+
             tf.keras.layers.Conv2D(filters=64, kernel_size=3, padding="same", activation=activation),
+            tf.keras.layers.Conv2D(filters=64, kernel_size=3, padding="same", activation=activation),   
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            tf.keras.layers.BatchNormalization(),
+
             tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(output_dim, activation=None)
         ])
@@ -93,9 +99,9 @@ class CNNBranchNet2D(tf.keras.Model):
 
 
 
-class MLP(tf.keras.Model):
+class MLPTrunkNet2D(tf.keras.Model):
 
-    def __init__(self, input_size:int, hidden_size : int, output_size : int, depth:int, activation : Union[str, callable], final_activation : bool) -> None:
+    def __init__(self, input_shape:int, hidden_size : int, output_size : int, depth:int, activation : Union[str, callable], final_activation : bool) -> None:
         """
         Multi-layer perceptron model
         :param input_size: input size
@@ -103,17 +109,16 @@ class MLP(tf.keras.Model):
         :param output_size: output size
         :param activation: activation function
         """
-        super(MLP, self).__init__()
+        super(MLPTrunkNet2D, self).__init__()
 
-        self.input_size = input_size
+        self.input_shape = input_shape
         self.hidden_size = hidden_size
         self.output_size = output_size
 
         self.activation = activation
 
         self.mlp = tf.keras.Sequential()
-
-        self.mlp.add(tf.keras.Input(shape=(input_size,)))
+        self.mlp.add(tf.keras.Input(shape=self.input_shape))
         
         for _ in range(depth):
             self.mlp.add(tf.keras.layers.Dense(hidden_size, activation=activation))
@@ -129,5 +134,6 @@ class MLP(tf.keras.Model):
         :param x: input tensor
         :return: output tensor
         """
+
         return self.mlp(x)
         
