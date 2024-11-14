@@ -42,24 +42,23 @@ class DeepONet(tf.keras.Model):
 
         self.bias = tf.Variable([1.0])
 
-    def build(self, input_shape):
-        return super().build(input_shape)
-
 
     def call(self, x_branch : tf.Tensor, x_trunk: tf.Tensor) -> tf.Tensor:
         """
         Forward pass
-        :param inputs
-        :return: output tensor
+        :x_branch: shape (batch, n_branch, n_branch)
+        :x_trunk: shape (batch, n_trunk) 
+        :return: shape (batch, n_trunk)
         """
    
         x, y = x_trunk[..., 0], x_trunk[..., 1]
         bounds = (x - self.x_bounds[0]) * (x - self.x_bounds[1]) * (y - self.t_bounds[0]) * (y - self.t_bounds[1])
 
-        branch_out = self.branch_net(x_branch)
-        trunk_out = self.trunk_net(x_trunk)
+        branch_out = self.branch_net(x_branch) # (batch, output_dim)
+        trunk_out = self.trunk_net(x_trunk) # (batch, output_dim)
         
-        return (branch_out @ tf.transpose(trunk_out) + self.bias) * tf.expand_dims(bounds, axis =-1)
+        output = tf.reduce_sum(branch_out * trunk_out, axis = 1, keepdims = True) + self.bias
+        return output * tf.expand_dims(bounds, axis =-1)
         
     
 
@@ -76,6 +75,7 @@ class CNNBranchNet2D(tf.keras.Model):
         
         self.cnn = tf.keras.Sequential([
             tf.keras.Input(shape=input_shape),
+            tf.keras.layers.Conv2D(filters=32, kernel_size=3, padding="same", activation=activation),
             tf.keras.layers.Conv2D(filters=32, kernel_size=3, padding="same", activation=activation),
             tf.keras.layers.Conv2D(filters=64, kernel_size=3, padding="same", activation=activation),
             tf.keras.layers.Flatten(),

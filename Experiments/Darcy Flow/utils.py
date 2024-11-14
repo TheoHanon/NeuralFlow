@@ -5,7 +5,7 @@ import json
 
 class DarcyDatasetLoader:
 
-    def __init__(self, tfrecord_dir):
+    def __init__(self, tfrecord_dir, gridx, gridy):
         self.tfrecord_dir = tfrecord_dir
         self.tfrecord_file = self.tfrecord_dir + "/data.tfrecord"
         self.metadata = self._load_metadata()
@@ -14,13 +14,15 @@ class DarcyDatasetLoader:
         self.n_sample = self.metadata["n_sample"]
         self.full_dataset = self._load_full_dataset()
 
+        self.gridx = gridx
+        self.gridy = gridy
+
     # Feature description based on your dataset structure
     def _feature_description(self):
         """Feature description with dynamic image size."""
 
         flat_size  =   self.image_shape[0] * self.image_shape[1]
 
-        print(flat_size)
         return {
             "permeability_field": tf.io.FixedLenFeature([flat_size], tf.float32),
             "solution_field": tf.io.FixedLenFeature([flat_size], tf.float32)
