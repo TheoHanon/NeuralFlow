@@ -92,20 +92,25 @@ class CNNBranchNet2D(tf.keras.Model):
 
         self.cnn = tf.keras.Sequential([
             tf.keras.Input(shape=in_shape),
-            tf.keras.layers.Conv2D(32, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
-            tf.keras.layers.Conv2D(32, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
-            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.15),
 
-            tf.keras.layers.Conv2D(64, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
-            tf.keras.layers.Conv2D(64, kernel_size=2, padding="same", activation=activation, kernel_initializer=initializer),
-            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            tf.keras.layers.Conv2D(16, kernel_size=3, padding="same", activation=activation, kernel_initializer=initializer),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Dropout(0.15),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            
 
+            tf.keras.layers.Conv2D(32, kernel_size=3, padding="same", activation=activation, kernel_initializer=initializer),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            
+
+            tf.keras.layers.Conv2D(64, kernel_size=3, padding="same", activation=activation, kernel_initializer=initializer),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
+            
             tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(output_dim, activation=None, kernel_initializer=initializer)
+            tf.keras.layers.Dense(128, activation = activation, kernel_initializer=initializer),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dense(output_dim, kernel_initializer=initializer)
         ])
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
