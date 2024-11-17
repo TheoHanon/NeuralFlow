@@ -25,8 +25,8 @@ class ParallelModel(tf.keras.Model):
         self.weight_sizes = [tf.reduce_prod(shape) for shape in self.weight_shapes]
         self.weight_sizes = [int(s) for s in self.weight_sizes]
 
-        self.input_shape = base_model.input_shape
-        self.output_shape = base_model.output_shape
+        self.output_shape = self.models[0].output_shape
+
 
     @property
     def weights(self):
@@ -45,8 +45,8 @@ class ParallelModel(tf.keras.Model):
                 var.assign(new_w)
 
     @tf.function
-    def call(self, inputs, training=False):
-        return [model(inputs, training=training) for model in self.models]
+    def call(self, inputs):
+        return [model(inputs) for model in self.models]
 
 
     

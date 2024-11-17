@@ -48,15 +48,18 @@ class DarcyDatasetLoader:
     
 
 
-    def get_split(self, frac=0.1,  test_size=0.2, batch_size=32, shuffle_buffer_size=100):
+    def get_split(self, frac=0.1,  test_size=0.2, batch_size=-1, shuffle_buffer_size=100):
         """Split the dataset into training and validation sets upon request."""
 
         frac_size = int(frac * self.n_sample)
         frac_dataset = self.full_dataset.take(frac_size)
 
         train_size = int((1 - test_size) * frac_size)
-     
-        train_dataset = frac_dataset.take(train_size).shuffle(shuffle_buffer_size).batch(batch_size)
-        test_dataset = frac_dataset.skip(train_size).batch(batch_size)
+        if batch_size != -1:
+            train_dataset = frac_dataset.take(train_size).shuffle(shuffle_buffer_size).batch(batch_size)
+            test_dataset = frac_dataset.skip(train_size).batch(batch_size)
+        else:
+            train_dataset = frac_dataset.take(train_size).shuffle(shuffle_buffer_size)
+            test_dataset = frac_dataset.skip(train_size)
 
         return train_dataset, test_dataset

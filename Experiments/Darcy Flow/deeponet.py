@@ -24,8 +24,10 @@ class DeepONet(tf.keras.Model):
                  depth:int, 
                  output_dim:int, 
                  activation : Union[str, callable], 
-                 x_bounds : tuple = (0, 1.0),
-                 t_bounds : tuple = (0, 1.0)
+                 grid_size : tuple,
+                 x_bounds : tuple = (0, 1),
+                 t_bounds : tuple = (0, 1), 
+                 **kwargs
                  ) -> None:
         """
         DeepONet model
@@ -45,32 +47,57 @@ class DeepONet(tf.keras.Model):
         self.depth = depth
         self.output_dim = output_dim
         self.activation = activation
+        self.output_shape = (None, grid_size[0]*grid_size[1])
         
         self.x_bounds = x_bounds
         self.t_bounds = t_bounds
+        self.grid_size = grid_size
 
+        grid = tf.meshgrid(tf.linspace(x_bounds[0], x_bounds[1], grid_size[0]), tf.linspace(self.t_bounds[0], self.t_bounds[1], grid_size[1]))
+        self.grid = tf.reshape(tf.stack(grid, axis=-1), (grid_size[0]*grid_size[1], 2))
+        self.grid = tf.cast(self.grid, dtype = tf.float32)
 
-        self.branch_net = CNNBranchNet2D(in_shape = (self.n_branch, self.n_branch, 1), output_dim = self.output_dim, activation = self.activation)
+        self.branch_net = CNNBranchNet2D(in_shape = (self.n_branch, self.n_branch), output_dim = self.output_dim, activation = self.activation)
         self.trunk_net = MLPTrunkNet2D(in_shape = (self.n_trunk,) , hidden_size = self.width, output_size = self.output_dim, depth = self.depth, activation = self.activation, final_activation=True)
 
         self.bias = tf.Variable([1.0])
 
 
-    def call(self, x_branch : tf.Tensor, x_trunk: tf.Tensor) -> tf.Tensor:
+    def call(self, x_branch : tf.Tensor) -> tf.Tensor:
         """
         Forward pass
         :x_branch: shape (batch, n_branch, n_branch)
-        :x_trunk: shape (n_xcoords*n_ycoords, n_trunk) 
         :return: shape (batch, n_trunk)
         """
-
-        x, y = x_trunk[..., 0], x_trunk[..., 1]
+        
+        x, y = self.grid[..., 0], self.grid[..., 1]
         bounds = (x - self.x_bounds[0]) * (x - self.x_bounds[1]) * (y - self.t_bounds[0]) * (y - self.t_bounds[1])
 
         branch_out = self.branch_net(x_branch) # (batch, output_dim)
-        trunk_out = self.trunk_net(x_trunk) # (n_xcoords * n_ycoords, output_dim)
+        trunk_out = self.trunk_net(self.grid) # (n_xcoords * n_ycoords, output_dim)
         
         return (branch_out @ tf.transpose(trunk_out) + self.bias) * bounds
+
+
+    def get_config(self):
+        config = super(DeepONet, self).get_config()
+        config.update({
+            "n_branch": self.n_branch,
+            "n_trunk": self.n_trunk,
+            "width": self.width,
+            "depth": self.depth,
+            "output_dim": self.output_dim,
+            "activation": self.activation,
+            "grid_size": self.grid_size,
+            "x_bounds": self.x_bounds,
+            "t_bounds": self.t_bounds,
+            "output_shape" : self.output_shape
+        })
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
         
     
 class CNNBranchNet2D(tf.keras.Model):
@@ -92,7 +119,7 @@ class CNNBranchNet2D(tf.keras.Model):
 
         self.cnn = tf.keras.Sequential([
             tf.keras.Input(shape=in_shape),
-
+            tf.keras.layers.Reshape((*self.in_shape, 1)),
             tf.keras.layers.Conv2D(16, kernel_size=3, padding="same", activation=activation, kernel_initializer=initializer),
             tf.keras.layers.BatchNormalization(),
             tf.keras.layers.MaxPooling2D(pool_size=(2, 2)),
