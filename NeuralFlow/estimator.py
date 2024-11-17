@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from parallel_model import ParallelModel
+from typing import List
 
 def get_estimator(name: str, *args, **kwds):
     if name == 'deep_ensemble':
@@ -12,41 +13,39 @@ def get_estimator(name: str, *args, **kwds):
     
 class Ensemble:
 
-    def __init__(self, weights: tf.Tensor, models : ParallelModel):
+    def __init__(self, weights: tf.Tensor, models : List[tf.keras.Model]) -> None:
         """
         Args:
             sample_weight: tf.Tensor, shape (nStep, M, d) : Weights
             model: Model : Model
         """
-    
-        self.nStep = weights.shape[0]
-        self.M = weights.shape[1]
-        self.d = weights.shape[2]
 
         self.weights = weights
         self.models = models
-
+    
 
     def __call__(self, x_pred : tf.Tensor, *args, **kwds) :
         
-        mean = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
-        var  = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
+        mean = []
+        var  = []
 
-        for t in range(self.nStep):
-            self.models.set_weights(self.weights[t])
-            y_pred = self.models(x_pred)
-            mean[t] = tf.reduce_mean(y_pred, axis = 0)
-            var[t]  = tf.reduce_mean((y_pred - mean[t][None, ...])**2, axis = 0)
+        for i, epoch in enumerate(self.weights.keys()):
+            
+            y_pred = []
 
-        mean = mean.squeeze()
-        var = var.squeeze()
+            for model_weights, model in zip(self.weights[epoch], self.models):
+                model.set_weights(model_weights)
+                y_pred.append(model(x_pred))
 
-        return mean, var
+            mean.append(tf.reduce_mean(y_pred, axis = 0))
+            var.append(tf.reduce_mean((y_pred - mean[i][None, ...])**2, axis = 0))
+
+        return np.array(mean), np.array(var)
 
 
 class ImportanceSampling:
 
-    def __init__(self, weights : tf.Tensor, logq: tf.Tensor, logp : tf.Tensor, models : ParallelModel) -> None:
+    def __init__(self, weights : tf.Tensor, logq: tf.Tensor, logp : tf.Tensor,  models : List[tf.keras.Model]) -> None:
 
         self.weights = weights
         self.logq = logq
@@ -68,20 +67,22 @@ class ImportanceSampling:
 
     def __call__(self, x_pred : np.ndarray, *args, **kwds):
         
-        mean = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
-        var  = np.zeros((self.nStep, x_pred.shape[0], self.models.output_shape[1]))
+        mean = []
+        var  = []
 
-        for t in range(self.nStep):
-            self.models.set_weights(self.weights[t])
-            y_pred = self.models(x_pred)
+        for i, epoch in enumerate(self.weights.keys()):
+            y_pred = []
 
-            mean[t] = tf.reduce_sum(y_pred * self.importance_weight[t][:, None, None], axis = 0)
-            var[t]  = tf.reduce_sum((y_pred - mean[t][None, ...])**2 * self.importance_weight[t][:, None, None], axis = 0)
+            for model_weights, model in zip(self.weights[epoch], self.models):
+                model.set_weights(model_weights)
+                y_pred.append(model(x_pred))
 
-        mean = mean.squeeze()
-        var = var.squeeze()
+    
+            mean.append(tf.reduce_sum(y_pred * self.importance_weight[i][:, None, None], axis = 0))
+            var.append(tf.reduce_sum((y_pred - mean[i][None, ...])**2 * self.importance_weight[i][:, None, None], axis = 0))
 
-        return mean, var
+  
+        return np.array(mean), np.array(var)
     
             
     
