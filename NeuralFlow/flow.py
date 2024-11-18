@@ -7,6 +7,7 @@ from tqdm.notebook import tqdm
 import estimator as est
 import parallel_model as pm
 from callback import NFCallback
+import matplotlib.pyplot as plt
 
 
 
@@ -123,19 +124,19 @@ class Flow_v2:
 
         wBefore = np.array(wBefore)
         wAfter = np.array(wAfter)
-        logp = np.stack(logp, axis=0) 
+        logp = -np.stack(logp, axis=0) 
         lr = np.unique(np.stack(lr, axis=0), axis=1)
 
         logq = np.zeros((self.n_epochs_recorded, self.n_models))
-        
+        d = wBefore.shape[-1]
 
         for i, (wbefore, wafter) in enumerate(zip(wBefore, wAfter)):
 
             diff = wafter[:, None, :] - wbefore[None, :, :]  # Shape: (n_models, n_models, d)
-            sigma = self.noise_stddev * np.ones(diff.shape[-1]) / (2 * lr[i])
+            sigma = np.ones(diff.shape[-1]) / (lr[i] * self.noise_stddev**2)
 
             exponents = -0.5 * np.einsum('mij,j,mij->mi', diff, sigma, diff)
-            logq[i] = -logsumexp(exponents, axis=1)
+            logq[i] = tf.reduce_logsumexp(exponents, axis=1)# - tf.cast(diff.shape[-1]/2 * tf.math.log(2*tf.constant(np.pi)*lr[i]*self.noise_stddev**2*self.n_models), exponents.dtype)
 
         return logp, logq
     

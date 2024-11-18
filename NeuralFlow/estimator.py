@@ -61,6 +61,7 @@ class ImportanceSampling:
     def _precompute_importance_weight(self) -> None: 
         for t in range(self.logq.shape[0]):
             log_ratio = self.logp[t] - self.logq[t]
+            print(tf.reduce_logsumexp(log_ratio, axis = 0))
             self.importance_weight[t] = tf.exp(tf.clip_by_value(log_ratio - tf.reduce_logsumexp(log_ratio, axis = 0), clip_value_min = -500, clip_value_max = 500))
         return 
 
