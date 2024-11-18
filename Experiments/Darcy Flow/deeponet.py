@@ -47,7 +47,7 @@ class DeepONet(tf.keras.Model):
         self.depth = depth
         self.output_dim = output_dim
         self.activation = activation
-        self.output_shape = (None, grid_size[0]*grid_size[1])
+        # self.output_shape = (None, grid_size[0]*grid_size[1])
         
         self.x_bounds = x_bounds
         self.t_bounds = t_bounds
@@ -91,7 +91,7 @@ class DeepONet(tf.keras.Model):
             "grid_size": self.grid_size,
             "x_bounds": self.x_bounds,
             "t_bounds": self.t_bounds,
-            "output_shape" : self.output_shape
+            # "output_shape" : self.output_shape
         })
         return config
 

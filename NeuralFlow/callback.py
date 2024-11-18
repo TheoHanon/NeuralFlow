@@ -40,7 +40,7 @@ class NFCallback(tf.keras.callbacks.Callback):
             self.weights_before[epoch] = weights_before_noise
 
         for var in self.model.trainable_variables:
-            noise = tf.sqrt(2 * lr * self.noise_stddev**2) * tf.random.normal(shape=tf.shape(var), mean=0.0, stddev=1.0, dtype=var.dtype)
+            noise = tf.sqrt(2 * tf.cast(lr, var.dtype) * tf.cast(self.noise_stddev**2, var.dtype)) * tf.random.normal(shape=tf.shape(var), mean=0.0, stddev=1.0, dtype=var.dtype)
             var.assign_add(noise)
 
         if epoch in self.memory_epochs:
