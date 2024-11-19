@@ -70,7 +70,7 @@ class Flow_v2:
             self.callbacks.append(nf_callback)
 
             callbacks = (callbacks or []) + [nf_callback]
-            model.fit(x = x, y = y, batch_size = batch_size, epochs = epochs, callbacks = callbacks, validation_data = validation_set, verbose = 2)
+            model.fit(x = x, y = y, batch_size = batch_size, epochs = epochs, callbacks = callbacks, validation_data = validation_set, verbose = verbose)
 
 
             for epoch in memory_epochs:

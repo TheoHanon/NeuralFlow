@@ -1,100 +1,122 @@
 import tensorflow as tf
-from deeponet import DeepONet
+from deeponet import DeepONet, CosineAnnealingSchedule
 from utils import *
-import matplotlib.pyplot as plt
-import os
+from flow import Flow_v2
+import numpy as np
+import gc
 
-# Boundary function
-@tf.function(reduce_retracing=True)
-def boundary_fn(x, boundaries=(0.0, 1.0)):
-    return (x[..., 0] - boundaries[0]) * (x[..., 0] - boundaries[1]) * (x[..., 1] - boundaries[0]) * (x[..., 1] - boundaries[1])
-
-# Downsample function
-def downsample(a, u):
-
-    a = tf.expand_dims(a, axis=-1)
-    u = tf.expand_dims(u, axis=-1)
-
-    pooling_layer = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), strides=(2, 2))
-
-    a_downsampled = pooling_layer(a)
-    a_downsampled = pooling_layer(a_downsampled)
-    a_downsampled = tf.squeeze(a_downsampled, axis=-1)
-
-    u_downsampled = pooling_layer(u)
-    u_downsampled = tf.squeeze(u_downsampled, axis =-1)
-
-    return a_downsampled, u_downsampled
-
-# Training step function
-@tf.function
-def train_step(a_batch, u_batch, model, optimizer, loss_fn, coords):
-    with tf.GradientTape() as tape:
-        boundaries = boundary_fn(coords)
-        predictions = model(tf.reshape(a_batch, (-1, 32*32)), coords) * boundaries
-        loss = loss_fn(tf.reshape(u_batch, (-1, 64*64)), predictions)
-    gradients = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return loss
-
-def main():
-    # Configure device and directories
-    device = "/gpu:0" if tf.config.list_physical_devices('GPU') else "/cpu:0"
-    print("Device :", device)
-    checkpoint_dir = './checkpoints'
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    checkpoint_path = os.path.join(checkpoint_dir, "model_epoch_{epoch:04d}.ckpt")
-
-    # Initialize model, loss, and optimizer
+def model_fn():
     model = DeepONet(
-        n_branch=32 * 32, 
-        n_trunk=2, 
-        width=40, 
-        depth=3, 
-        output_dim=64 * 64,
-        activation="relu",
+        n_branch = 64, 
+        n_trunk = 2, 
+        width = 100, 
+        depth = 3, 
+        output_dim = 100,
+        activation = "relu",
+        grid_size = (128, 128)
     )
-    loss_fn = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.SUM)
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-4, 
-        decay_steps=500,
-        decay_rate=0.96,
-        staircase=True
+    return model
+
+def optimizer_fn():
+    lr_schedule = CosineAnnealingSchedule(
+        initial_learning_rate=0.001, 
+        decay_steps=100,  
+        alpha=1e-4 
     )
     optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+    return optimizer
 
-    # Load and process data
-    dataloader = DarcyDatasetLoader("DarcyDataset")
-    train_dataset, test_dataset = dataloader.get_split(0.2, batch_size=32)
-    train_dataset = train_dataset.map(lambda a, u: downsample(a, u))
-    test_dataset = test_dataset.map(lambda a, u: downsample(a, u))
+def loss_fn(y_true, y_pred):
+    return tf.reduce_mean(tf.reduce_sum(tf.square(y_true - y_pred), axis = 1), axis = 0)
 
-    # Coordinates for training and testing
-    coords = tf.meshgrid(tf.linspace(0.0, 1.0, 64), tf.linspace(0.0, 1.0, 64))
-    coords = tf.stack(coords, axis=-1)
-    coords = tf.reshape(coords, (-1, 2))
+dataloader = DarcyDatasetLoader("DarcyDataset")
+train_dataset, test_dataset = dataloader.get_split(test_size = 0.1, batch_size = -1, frac = 0.8)
 
-    # Training loop parameters
-    epochs = 10_000
+def downsample(a, u):
+    a = tf.expand_dims(a, axis=-1) 
+    a = tf.expand_dims(a, axis=0) 
+    pooling_layer = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), strides=(2, 2))
+    a_downsampled = pooling_layer(a)
+    a_downsampled = tf.squeeze(a_downsampled)
+    return a_downsampled, u
 
-    # Main training loop
-    for epoch in range(epochs):
-        loss_avg = 0.0
-        num_batches = 0
-        for step, (a_batch, u_batch) in enumerate(train_dataset):
-            loss_avg += train_step(a_batch, u_batch, model, optimizer, loss_fn, coords)
-            num_batches += 1
-        loss_avg /= num_batches
+train_dataset = train_dataset.map(lambda a, u : downsample(a, u/1e-2))
+test_dataset  = test_dataset.map(lambda a, u : downsample(a, u/1e-2))
 
-        if (epoch + 1) % 100:
-            print(f"Epoch[{epoch+1}/{epochs}] Loss : {loss_avg.numpy():.9e}")
-        
-        # Save model checkpoints periodically
-        if (epoch + 1) % 2000 == 0:
-            model.save_weights(checkpoint_path.format(epoch=epoch+1))
+X_train = tf.convert_to_tensor(
+    list(train_dataset.map(lambda a, u: a).as_numpy_iterator())
+)
+y_train = tf.convert_to_tensor(
+    list(train_dataset.map(lambda a, u: tf.reshape(u, [-1])).as_numpy_iterator())
+)
 
-    model.save_weights(checkpoint_path.format(epoch=epochs))
-    print("Training completed and model parameters saved.")
+def run_flow_experiments(N_MODELS, EPOCHS = 5_000, MEMORY_EPOCHS=[100, 500, 1000, 2500, 5000]) :
+    for n_models in N_MODELS:
+        flow = Flow_v2(
+            model_fn = model_fn,
+            n_models = n_models,
+            noise_stddev=tf.cast(1e-4, tf.float32), 
+            lam = tf.cast(1e0, tf.float32))
 
-if __name__ == "__main__":
-    main()
+        flow.compile(
+            optimizer_fn=optimizer_fn,
+            loss_fn=loss_fn, 
+            metrics=["mae"], 
+        )
+
+        flow.fit(
+            x=X_train, 
+            y=y_train, 
+            epochs = EPOCHS, 
+            batch_size = 128,
+            memory_epochs = MEMORY_EPOCHS, 
+            verbose = 0
+        )
+
+        est_IS = flow.get_estimator(name='importance_sampling')
+        est_DP = flow.get_estimator(name='deep_ensemble')
+
+        list_u_pred_IS, list_std_pred_IS = [], []
+        list_u_pred_DP, list_std_pred_DP = [], []
+        list_error_IS, list_error_DP = [], []
+
+        for (a, u) in test_dataset:
+            u_pred_IS, std_pred_IS = est_IS(a[None, ...])
+            u_pred_DP, std_pred_DP = est_DP(a[None, ...])
+
+            error_IS = np.abs(u_pred_IS - tf.reshape(u, [-1]))**2 / np.max(tf.reshape(u, [-1])**2)
+            error_DP = np.abs(u_pred_DP - tf.reshape(u, [-1]))**2 / np.max(tf.reshape(u, [-1])**2)
+            
+            list_u_pred_IS.append(u_pred_IS)
+            list_std_pred_IS.append(std_pred_IS)
+            
+            list_u_pred_DP.append(u_pred_DP)
+            list_std_pred_DP.append(std_pred_DP)
+
+            list_error_IS.append(error_IS)
+            list_error_DP.append(error_DP)
+
+        list_u_pred_IS, list_std_pred_IS = np.array(list_u_pred_IS), np.array(list_std_pred_IS)
+        list_u_pred_DP, list_std_pred_DP = np.array(list_u_pred_DP), np.array(list_std_pred_DP)
+        list_error_IS, list_error_DP = np.array(list_error_IS), np.array(list_error_DP)
+
+        np.savez_compressed(f"results/{n_models}.npz", 
+                u_pred_IS=list_u_pred_IS,
+                std_pred_IS=list_std_pred_IS,
+                u_pred_DP=list_u_pred_DP,
+                std_pred_DP=list_std_pred_DP,
+                error_IS=list_error_IS,
+                error_DP= list_error_DP
+                )
+
+        del flow, est_IS, est_DP
+        del list_u_pred_IS, list_std_pred_IS, list_u_pred_DP, list_std_pred_DP
+        del list_error_IS, list_error_DP
+        gc.collect()
+
+        print(f"==n_models = {n_models} Done!")        
+
+
+if __name__=="__main__":
+
+    run_flow_experiments(N_MODELS=[2, 5, 10, 15, 20])

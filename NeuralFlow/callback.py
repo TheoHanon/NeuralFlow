@@ -31,16 +31,16 @@ class NFCallback(tf.keras.callbacks.Callback):
         lr = self.model.optimizer.learning_rate
 
         if isinstance(lr, tf.keras.optimizers.schedules.LearningRateSchedule):
-            self.learning_rate[epoch] = lr(self.current_epoch)
+            self.learning_rate[epoch] = float(lr(self.current_epoch))
         else :
-            self.learning_rate[epoch] = lr.numpy()
+            self.learning_rate[epoch] = float(lr.numpy())
 
         if epoch in self.memory_epochs:
             weights_before_noise = self._get_weights()
             self.weights_before[epoch] = weights_before_noise
 
         for var in self.model.trainable_variables:
-            noise = tf.sqrt(2 * tf.cast(lr, var.dtype) * tf.cast(self.noise_stddev**2, var.dtype)) * tf.random.normal(shape=tf.shape(var), mean=0.0, stddev=1.0, dtype=var.dtype)
+            noise = tf.cast(tf.sqrt(2 * self.learning_rate[epoch] * self.noise_stddev**2), var.dtype) * tf.random.normal(shape=tf.shape(var), mean=0.0, stddev=1.0, dtype=var.dtype)
             var.assign_add(noise)
 
         if epoch in self.memory_epochs:
