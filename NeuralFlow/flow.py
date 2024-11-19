@@ -78,7 +78,7 @@ class Flow_v2:
                 self.weights_before_noise[epoch].append(nf_callback.weights_before[epoch])
                 self.learning_rates_noise[epoch].append(nf_callback.learning_rate[epoch])
                 self.losses[epoch].append(nf_callback.losses[epoch])
-        
+
 
     def compute_distribution(self):
         """
@@ -127,9 +127,7 @@ class Flow_v2:
 
             diff = wafter[:, None, :] - wbefore[None, :, :]  # Shape: (n_models, n_models, d)
             sigma = np.ones(diff.shape[-1]) / (lr[i] * self.noise_stddev**2)
-
             exponents = -0.5 * np.einsum('mij,j,mij->mi', diff, sigma, diff)
-            print(exponents)
             logq[i] = tf.reduce_logsumexp(exponents, axis=1)# - tf.cast(diff.shape[-1]/2 * tf.math.log(2*tf.constant(np.pi)*lr[i]*self.noise_stddev**2*self.n_models), exponents.dtype)
 
         return logp, logq
