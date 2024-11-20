@@ -51,42 +51,52 @@ y_train = tf.convert_to_tensor(
 )
 
 def run_flow_experiments(N_MODELS, EPOCHS = 5_000, MEMORY_EPOCHS=[100, 500, 1000, 2500, 5000]) :
-    for n_models in N_MODELS:
-        flow = Flow_v2(
-            model_fn = model_fn,
-            n_models = n_models,
-            noise_stddev=tf.cast(1e-4, tf.float32), 
-            lam = tf.cast(1e0, tf.float32))
 
-        flow.compile(
-            optimizer_fn=optimizer_fn,
-            loss_fn=loss_fn, 
-            metrics=["mae"], 
-        )
+    flow = Flow_v2(
+        model_fn = model_fn,
+        n_models = N_MODELS,
+        noise_stddev=tf.cast(1e-6, tf.float32), 
+        lam = tf.cast(1e0, tf.float32))
 
-        flow.fit(
-            x=X_train, 
-            y=y_train, 
-            epochs = EPOCHS, 
-            batch_size = 128,
-            memory_epochs = MEMORY_EPOCHS, 
-            verbose = 0
-        )
+    flow.compile(
+        optimizer_fn=optimizer_fn,
+        loss_fn=loss_fn, 
+        metrics=["mae"], 
+    )
 
-        est_IS = flow.get_estimator(name='importance_sampling')
-        est_DP = flow.get_estimator(name='deep_ensemble')
+    flow.fit(
+        x=X_train, 
+        y=y_train, 
+        epochs = EPOCHS, 
+        batch_size = 128,
+        memory_epochs = MEMORY_EPOCHS, 
+        verbose = 2
+    )
+
+    for n_models in range(1, N_MODELS):
+
+        est_IS = flow.get_estimator(name='importance_sampling', n_models = n_models)
+        est_DP = flow.get_estimator(name='deep_ensemble', n_models = n_models)
 
         list_u_pred_IS, list_std_pred_IS = [], []
         list_u_pred_DP, list_std_pred_DP = [], []
         list_error_IS, list_error_DP = [], []
 
-        for (a, u) in test_dataset:
+        if n_models == 1:
+            list_a_true, list_u_true =  [], []
+
+        for (a, u) in test_dataset.take(20):
+        
             u_pred_IS, std_pred_IS = est_IS(a[None, ...])
             u_pred_DP, std_pred_DP = est_DP(a[None, ...])
 
             error_IS = np.abs(u_pred_IS - tf.reshape(u, [-1]))**2 / np.max(tf.reshape(u, [-1])**2)
             error_DP = np.abs(u_pred_DP - tf.reshape(u, [-1]))**2 / np.max(tf.reshape(u, [-1])**2)
-            
+
+            if n_models == 1:
+                list_a_true.append(a)
+                list_u_true.append(u)
+
             list_u_pred_IS.append(u_pred_IS)
             list_std_pred_IS.append(std_pred_IS)
             
@@ -99,6 +109,9 @@ def run_flow_experiments(N_MODELS, EPOCHS = 5_000, MEMORY_EPOCHS=[100, 500, 1000
         list_u_pred_IS, list_std_pred_IS = np.array(list_u_pred_IS), np.array(list_std_pred_IS)
         list_u_pred_DP, list_std_pred_DP = np.array(list_u_pred_DP), np.array(list_std_pred_DP)
         list_error_IS, list_error_DP = np.array(list_error_IS), np.array(list_error_DP)
+        if n_models == 1:
+            list_a_true, list_u_true = np.array(list_a_true), np.array(list_u_true)
+
 
         np.savez_compressed(f"results/{n_models}.npz", 
                 u_pred_IS=list_u_pred_IS,
@@ -109,14 +122,17 @@ def run_flow_experiments(N_MODELS, EPOCHS = 5_000, MEMORY_EPOCHS=[100, 500, 1000
                 error_DP= list_error_DP
                 )
 
-        del flow, est_IS, est_DP
+        del est_IS, est_DP
         del list_u_pred_IS, list_std_pred_IS, list_u_pred_DP, list_std_pred_DP
         del list_error_IS, list_error_DP
         gc.collect()
 
-        print(f"==n_models = {n_models} Done!")        
-
+        print(f"==n_models = {n_models} Done!")     
+           
+    np.savez_compressed(f"results/gt.npz", 
+                        a = list_a_true, 
+                        u = list_u_true)
 
 if __name__=="__main__":
 
-    run_flow_experiments(N_MODELS=[2, 5, 10, 15, 20])
+    run_flow_experiments(N_MODELS=1, MEMORY_EPOCHS = [-1])

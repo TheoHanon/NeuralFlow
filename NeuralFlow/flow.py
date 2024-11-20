@@ -133,7 +133,7 @@ class Flow_v2:
         return logp, logq
     
 
-    def get_estimator(self, name: str):
+    def get_estimator(self, name: str, n_models : int = -1):
         """
         Get the estimator with the given name.
 
@@ -144,11 +144,11 @@ class Flow_v2:
             Estimator: Estimator object.
         """
         if name == 'deep_ensemble':
-            return est.Ensemble(self.weights_before_noise, self.models)
+            return est.Ensemble(self.weights_before_noise, self.models, n_models)
         
         elif name == 'importance_sampling':
             logp, logq = self.compute_distribution()
-            return est.get_estimator(name, self.weights_before_noise, logq, logp, self.models)
+            return est.get_estimator(name, self.weights_before_noise, logq, logp, self.models, n_models)
     
         else:
             raise ValueError(f"Invalid estimator name: {name}")

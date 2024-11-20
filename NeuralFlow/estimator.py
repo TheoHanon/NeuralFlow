@@ -13,7 +13,7 @@ def get_estimator(name: str, *args, **kwds):
     
 class Ensemble:
 
-    def __init__(self, weights: tf.Tensor, models : List[tf.keras.Model]) -> None:
+    def __init__(self, weights: tf.Tensor, models : List[tf.keras.Model], n_models : int = -1) -> None:
         """
         Args:
             sample_weight: tf.Tensor, shape (nStep, M, d) : Weights
@@ -21,7 +21,8 @@ class Ensemble:
         """
 
         self.weights = weights
-        self.models = models
+        self.models = models[:n_models]
+        self.n_models = n_models
     
 
     def __call__(self, x_pred : tf.Tensor, *args, **kwds) :
@@ -45,16 +46,15 @@ class Ensemble:
 
 class ImportanceSampling:
 
-    def __init__(self, weights : tf.Tensor, logq: tf.Tensor, logp : tf.Tensor,  models : List[tf.keras.Model]) -> None:
+    def __init__(self, weights : tf.Tensor, logq: tf.Tensor, logp : tf.Tensor,  models : List[tf.keras.Model], n_models : int = -1) -> None:
 
         self.weights = weights
-        self.logq = logq
-        self.logp = logp
-        self.models = models
-
+        self.logq = logq[:, :n_models]
+        self.logp = logp[:, :n_models]
+        self.models = models[:n_models]
+        self.M = n_models
         self.nStep = self.logq.shape[0]
-        self.M = self.logq.shape[1]
-
+    
         self.importance_weight = np.zeros_like(self.logq)
         self._precompute_importance_weight()
         
