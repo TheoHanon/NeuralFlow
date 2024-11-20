@@ -2,6 +2,8 @@ Experiments/Darcy Flow/figures/
 Experiments/Darcy Flow/DarcyDataset
 Experiments/Darcy Flow/checkpoints
 Experiments/**/nohup.out
+Experiments/**/results
+
 
 thanon@wave7b.mit.edu
 

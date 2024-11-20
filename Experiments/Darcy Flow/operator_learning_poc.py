@@ -55,7 +55,7 @@ def run_flow_experiments(N_MODELS, EPOCHS = 1_000, MEMORY_EPOCHS=[100, 500, 1000
     flow = Flow_v2(
         model_fn = model_fn,
         n_models = N_MODELS,
-        noise_stddev=tf.cast(1e-6, tf.float32), 
+        noise_stddev=tf.cast(1e-9, tf.float32), 
         lam = tf.cast(1e0, tf.float32))
 
     flow.compile(
@@ -136,4 +136,4 @@ def run_flow_experiments(N_MODELS, EPOCHS = 1_000, MEMORY_EPOCHS=[100, 500, 1000
 
 if __name__=="__main__":
 
-    run_flow_experiments(N_MODELS=1, MEMORY_EPOCHS = [1_000])
+    run_flow_experiments(N_MODELS=15, MEMORY_EPOCHS = [100, 500, 1000, 1500, 2000], EPOCHS = 2000)
