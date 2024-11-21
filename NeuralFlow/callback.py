@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 class NFCallback(tf.keras.callbacks.Callback):
-    def __init__(self, noise_stddev, memory_epochs = None, dataset_train = None, loss_fn = None):
+    def __init__(self, noise_stddev, x, y = None, memory_epochs = None,  loss_fn = None):
         """
         Custom callback to add noise to weights after gradient updates.
 
@@ -13,10 +13,9 @@ class NFCallback(tf.keras.callbacks.Callback):
         self.noise_stddev = noise_stddev
         self.memory_epochs = memory_epochs
         
-        x_train, y_train = dataset_train
+        self.x = x 
+        self.y = y
 
-        self.x_train = x_train if x_train is not None else None
-        self.y_train = y_train if y_train is not None else None
         self.loss_fn = loss_fn
 
         self.weights_before = {}
@@ -47,9 +46,20 @@ class NFCallback(tf.keras.callbacks.Callback):
             weights_after_noise = self._get_weights()
             self.weights_after[epoch] = weights_after_noise
 
-            if self.x_train is not None and self.y_train is not None:
-                y_pred = self.model(self.x_train)
-                self.losses[epoch] = self.loss_fn(self.y_train, y_pred).numpy()
+            if self.x is not None and self.y is not None:
+                y_pred = self.model(self.x)
+                self.losses[epoch] = self.loss_fn(self.y, y_pred).numpy()
+
+            elif self.y is None:
+                loss = 0
+                count = 0
+                for (inputs, y_true) in self.x:
+                    count +=1
+                    y_pred = self.model(inputs)
+                    loss += self.loss_fn(y_true, y_pred)
+
+                self.losses[epoch] = loss / count
+
 
 
     def _get_weights(self):

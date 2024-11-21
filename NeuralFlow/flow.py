@@ -52,10 +52,13 @@ class Flow_v2:
             self.models.append(model)
             
 
-    def fit(self, x, y, epochs, batch_size, memory_epochs = -1, validation_set = None, callbacks = None, verbose = 2):
+    def fit(self, epochs, batch_size, x, y=None, memory_epochs = -1, validation_set = None, callbacks = None, verbose = 2):
 
         if memory_epochs == -1:
             memory_epochs = [epochs]
+
+        if y is None:
+            x = x.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
         self.n_epochs_recorded = len(memory_epochs)
         self.weights_before_noise = {epoch: [] for epoch in memory_epochs}
@@ -66,12 +69,11 @@ class Flow_v2:
 
         for model in self.models:
 
-            nf_callback = NFCallback(self.noise_stddev, memory_epochs = memory_epochs, loss_fn = self.loss_fn, dataset_train = (x, y))
+            nf_callback = NFCallback(self.noise_stddev, memory_epochs = memory_epochs, loss_fn = self.loss_fn, x=x, y=y)
             self.callbacks.append(nf_callback)
 
             callbacks = (callbacks or []) + [nf_callback]
             model.fit(x = x, y = y, batch_size = batch_size, epochs = epochs, callbacks = callbacks, validation_data = validation_set, verbose = verbose)
-
 
             for epoch in memory_epochs:
                 self.weights_after_noise[epoch].append(nf_callback.weights_after[epoch])
@@ -126,7 +128,11 @@ class Flow_v2:
         for i, (wbefore, wafter) in enumerate(zip(wBefore, wAfter)):
 
             diff = wafter[:, None, :] - wbefore[None, :, :]  # Shape: (n_models, n_models, d)
-            sigma = np.ones(diff.shape[-1]) / (lr[i] * self.noise_stddev**2)
+            if self.noise_stddev == 0.0:
+                sigma = np.zeros(diff.shape[-1]) 
+            else:
+                sigma = np.ones(diff.shape[-1]) / (lr[i] * self.noise_stddev**2)
+                
             exponents = -0.5 * np.einsum('mij,j,mij->mi', diff, sigma, diff)
             logq[i] = tf.reduce_logsumexp(exponents, axis=1)# - tf.cast(diff.shape[-1]/2 * tf.math.log(2*tf.constant(np.pi)*lr[i]*self.noise_stddev**2*self.n_models), exponents.dtype)
 
