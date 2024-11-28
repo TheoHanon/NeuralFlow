@@ -132,9 +132,11 @@ class Flow_v2:
                 sigma = np.zeros(diff.shape[-1]) 
             else:
                 sigma = np.ones(diff.shape[-1]) / (lr[i] * self.noise_stddev**2)
-                
+            print("Nan in diff :", np.isnan(diff).any())
             exponents = -0.5 * np.einsum('mij,j,mij->mi', diff, sigma, diff)
+            print("Nan in exp :", np.isnan(exponents).any())
             logq[i] = tf.reduce_logsumexp(exponents, axis=1)# - tf.cast(diff.shape[-1]/2 * tf.math.log(2*tf.constant(np.pi)*lr[i]*self.noise_stddev**2*self.n_models), exponents.dtype)
+            print("Nan in logq :", np.isnan(logq[i]).any())
 
         return logp, logq
     

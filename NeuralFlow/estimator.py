@@ -27,8 +27,6 @@ class Ensemble:
 
     def __call__(self, x_pred : tf.Tensor, *args, **kwds) :
 
-        
-        
         mean = []
         var  = []
 
@@ -64,6 +62,7 @@ class ImportanceSampling:
         for t in range(self.logq.shape[0]):
             log_ratio = self.logp[t] - self.logq[t]
             self.importance_weight[t] = tf.exp(tf.clip_by_value(log_ratio - tf.reduce_logsumexp(log_ratio, axis = 0), clip_value_min = -300, clip_value_max = 300))
+            print("Nan in W : ", np.isnan(self.importance_weight[t]).any())
         return 
 
 
@@ -75,15 +74,19 @@ class ImportanceSampling:
         for i, epoch in enumerate(self.weights.keys()):
             y_pred = []
 
-            for model_weights, model in zip(self.weights[epoch], self.models):
+            for model_weights, model in zip(self.weights[epoch][:self.M], self.models):
                 model.set_weights(model_weights)
                 y_pred.append(model(x_pred))
 
-    
+            y_pred = np.array(y_pred)
+            if y_pred.ndim == 2:
+                y_pred = np.expand_dims(y_pred, axis = -1)
+
+            #shape of y_pred is (self.n_models, n_batch, output_dim)
             mean.append(tf.reduce_sum(y_pred * self.importance_weight[i][:, None, None], axis = 0))
             var.append(tf.reduce_sum((y_pred - mean[i][None, ...])**2 * self.importance_weight[i][:, None, None], axis = 0))
-
-  
+        
+        #shape of mean is (n_records, batch, output_dim)
         return np.array(mean), np.array(var)
     
             
